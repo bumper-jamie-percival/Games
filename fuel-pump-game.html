@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pump Stop</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d0d0d; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    const TARGET = 100.00;
+
+    const DIFFICULTY_SPEEDS = {
+      Easy: 0.8,
+      Medium: 1.8,
+      Hard: 3.5,
+    };
+
+    function getGrade(diff) {
+      if (diff === 0) return { label: "PERFECT", color: "#00ff88", stars: 5 };
+      if (diff <= 0.02) return { label: "INCREDIBLE", color: "#00ff88", stars: 5 };
+      if (diff <= 0.05) return { label: "AMAZING", color: "#7fff00", stars: 4 };
+      if (diff <= 0.10) return { label: "GREAT", color: "#ffd700", stars: 4 };
+      if (diff <= 0.25) return { label: "GOOD", color: "#ffa500", stars: 3 };
+      if (diff <= 0.50) return { label: "OKAY", color: "#ff8c00", stars: 2 };
+      if (diff <= 1.00) return { label: "CLOSE-ISH", color: "#ff6347", stars: 1 };
+      return { label: "MISS", color: "#ff2244", stars: 0 };
+    }
+
+    function SevenSeg({ value, color = "#ff8c00" }) {
+      const display = value.toFixed(2).padStart(7, " ");
+      return (
+        <div style={{
+          fontFamily: "'Courier New', monospace",
+          fontSize: "clamp(2.2rem, 7vw, 4rem)",
+          letterSpacing: "0.12em",
+          color: color,
+          textShadow: `0 0 8px ${color}aa, 0 0 20px ${color}55`,
+          background: "#0a0a0a",
+          padding: "12px 24px",
+          borderRadius: "6px",
+          border: "2px solid #222",
+          boxShadow: "inset 0 2px 8px #000",
+          minWidth: "220px",
+          textAlign: "right",
+          userSelect: "none",
+        }}>
+          <span style={{ color: "#1a1a1a" }}>{"".padStart(Math.max(0, 7 - display.trim().length), "8")}</span>
+          {display.trim()}
+        </div>
+      );
+    }
+
+    function Stars({ count }) {
+      return (
+        <div style={{ fontSize: "1.8rem", letterSpacing: "4px", marginTop: "4px" }}>
+          {[1,2,3,4,5].map(i => (
+            <span key={i} style={{
+              color: i <= count ? "#ffd700" : "#2a2a2a",
+              textShadow: i <= count ? "0 0 8px #ffd700aa" : "none",
+              transition: "all 0.3s ease",
+            }}>★</span>
+          ))}
+        </div>
+      );
+    }
+
+    function FuelPumpGame() {
+      const randomStart = () => Math.random() * (68 - 50) + 50;
+      const [fuel, setFuel] = useState(() => randomStart());
+      const [running, setRunning] = useState(false);
+      const [stopped, setStopped] = useState(false);
+      const [result, setResult] = useState(null);
+      const [bestScore, setBestScore] = useState(null);
+      const [round, setRound] = useState(1);
+      const [difficulty, setDifficulty] = useState("Medium");
+      const [history, setHistory] = useState([]);
+      const [shake, setShake] = useState(false);
+      const [showSplash, setShowSplash] = useState(true);
+      const [overshoot, setOvershoot] = useState(false);
+
+      const fuelRef = useRef(fuel);
+      const runningRef = useRef(false);
+      const animRef = useRef(null);
+      const lastTimeRef = useRef(null);
+
+      const speed = DIFFICULTY_SPEEDS[difficulty];
+
+      const tick = useCallback((timestamp) => {
+        if (!runningRef.current) return;
+        if (!lastTimeRef.current) lastTimeRef.current = timestamp;
+        const delta = (timestamp - lastTimeRef.current) / 1000;
+        lastTimeRef.current = timestamp;
+
+        fuelRef.current = Math.min(fuelRef.current + speed * delta, 115);
+        setFuel(fuelRef.current);
+
+        if (fuelRef.current >= 115) {
+          runningRef.current = false;
+          const diff = Math.abs(fuelRef.current - TARGET);
+          const grade = getGrade(diff);
+          setResult({ value: fuelRef.current, diff, grade });
+          setStopped(true);
+          setOvershoot(true);
+          setShake(true);
+          setTimeout(() => setShake(false), 500);
+          setHistory(h => [...h, { round, value: fuelRef.current, diff, grade, difficulty }]);
+          if (bestScore === null || diff < bestScore) setBestScore(diff);
+          return;
+        }
+
+        animRef.current = requestAnimationFrame(tick);
+      }, [speed, round, bestScore, difficulty]);
+
+      const handleStart = () => {
+        if (showSplash) setShowSplash(false);
+        if (stopped) {
+          const start = randomStart();
+          fuelRef.current = start;
+          setFuel(start);
+          setResult(null);
+          setStopped(false);
+          setOvershoot(false);
+          setRound(r => r + 1);
+          lastTimeRef.current = null;
+          runningRef.current = true;
+          setRunning(true);
+          animRef.current = requestAnimationFrame(tick);
+          return;
+        }
+        if (!running) {
+          lastTimeRef.current = null;
+          runningRef.current = true;
+          setRunning(true);
+          animRef.current = requestAnimationFrame(tick);
+        }
+      };
+
+      const handleStop = useCallback(() => {
+        if (!runningRef.current || stopped) return;
+        runningRef.current = false;
+        setRunning(false);
+        cancelAnimationFrame(animRef.current);
+        const val = fuelRef.current;
+        const diff = Math.abs(val - TARGET);
+        const grade = getGrade(diff);
+        setResult({ value: val, diff, grade });
+        setStopped(true);
+        setOvershoot(val > TARGET);
+        setShake(true);
+        setTimeout(() => setShake(false), 500);
+        setHistory(h => [...h, { round, value: val, diff, grade, difficulty }]);
+        if (bestScore === null || diff < bestScore) setBestScore(diff);
+      }, [stopped, round, bestScore, difficulty]);
+
+      useEffect(() => {
+        const onKey = (e) => {
+          if (e.code === "Space") {
+            e.preventDefault();
+            if (!running && !stopped) handleStart();
+            else if (running) handleStop();
+          }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+      }, [running, stopped, handleStart, handleStop]);
+
+      useEffect(() => {
+        return () => cancelAnimationFrame(animRef.current);
+      }, []);
+
+      const displayColor = result
+        ? (overshoot ? "#ff3366" : result.grade.color)
+        : running ? "#ff8c00" : "#444";
+
+      const progress = Math.min((fuel / TARGET) * 100, 100);
+
+      return (
+        <div style={{
+          minHeight: "100vh",
+          background: "#0d0d0d",
+          backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 39px, #111 39px, #111 40px), repeating-linear-gradient(90deg, transparent, transparent 39px, #111 39px, #111 40px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: "'Georgia', serif",
+          padding: "16px",
+        }}>
+          <div style={{
+            width: "100%",
+            maxWidth: "420px",
+            animation: shake ? "shake 0.4s ease" : "none",
+          }}>
+            <style>{`
+              @keyframes shake {
+                0%,100% { transform: translateX(0); }
+                20% { transform: translateX(-6px); }
+                40% { transform: translateX(6px); }
+                60% { transform: translateX(-4px); }
+                80% { transform: translateX(4px); }
+              }
+              @keyframes pulse {
+                0%,100% { opacity: 1; }
+                50% { opacity: 0.5; }
+              }
+              @keyframes glow {
+                0%,100% { box-shadow: 0 0 20px #ff8c0044; }
+                50% { box-shadow: 0 0 40px #ff8c0088; }
+              }
+              @keyframes slideUp {
+                from { transform: translateY(20px); opacity: 0; }
+                to { transform: translateY(0); opacity: 1; }
+              }
+            `}</style>
+
+            <div style={{ textAlign: "center", marginBottom: "24px" }}>
+              <div style={{ fontSize: "2.4rem", marginBottom: "4px" }}>⛽</div>
+              <h1 style={{
+                margin: 0, color: "#ff8c00",
+                fontSize: "clamp(1.4rem, 5vw, 2rem)",
+                fontWeight: "bold", letterSpacing: "0.15em",
+                textTransform: "uppercase", textShadow: "0 0 20px #ff8c0066",
+              }}>PUMP STOP</h1>
+              <p style={{ margin: "4px 0 0", color: "#555", fontSize: "0.8rem", letterSpacing: "0.2em", textTransform: "uppercase" }}>
+                Stop at exactly £100.00
+              </p>
+            </div>
+
+            <div style={{
+              background: "linear-gradient(160deg, #1a1a1a 0%, #141414 100%)",
+              border: "2px solid #2a2a2a", borderRadius: "12px", padding: "24px",
+              boxShadow: "0 8px 40px #000, inset 0 1px 0 #333",
+              animation: running ? "glow 1s ease infinite" : "none",
+            }}>
+              <div style={{ textAlign: "center", marginBottom: "20px" }}>
+                <div style={{ fontSize: "0.7rem", color: "#444", letterSpacing: "0.25em", marginBottom: "8px", textTransform: "uppercase" }}>£ AMOUNT</div>
+                <SevenSeg value={fuel} color={displayColor} />
+              </div>
+
+              <div style={{ marginBottom: "20px" }}>
+                <div style={{ height: "8px", background: "#0f0f0f", borderRadius: "4px", border: "1px solid #1f1f1f", overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", width: `${progress}%`,
+                    background: fuel > TARGET ? "linear-gradient(90deg, #ff3366, #ff0044)"
+                      : fuel > 95 ? "linear-gradient(90deg, #ffd700, #ff8c00)"
+                      : "linear-gradient(90deg, #ff8c00, #ffb347)",
+                    borderRadius: "4px", transition: "width 0.05s linear",
+                    boxShadow: fuel > 95 ? "0 0 8px #ffd70088" : "none",
+                  }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px", fontSize: "0.65rem", color: "#333", letterSpacing: "0.1em" }}>
+                  <span>£0</span>
+                  <span style={{ color: "#ff8c0066" }}>£100 ★</span>
+                  <span>£115</span>
+                </div>
+              </div>
+
+              {result && (
+                <div style={{
+                  textAlign: "center", padding: "16px", background: "#0a0a0a",
+                  borderRadius: "8px", border: `1px solid ${result.grade.color}33`,
+                  marginBottom: "16px", animation: "slideUp 0.3s ease",
+                }}>
+                  <div style={{ fontSize: "1.3rem", fontWeight: "bold", color: result.grade.color, letterSpacing: "0.15em", textShadow: `0 0 12px ${result.grade.color}88` }}>
+                    {result.grade.label}
+                  </div>
+                  <Stars count={result.grade.stars} />
+                  <div style={{ marginTop: "8px", fontSize: "0.85rem", color: "#666" }}>
+                    {overshoot ? "+" : result.diff === 0 ? "" : "-"}
+                    {overshoot ? `£${(result.value - TARGET).toFixed(2)} over`
+                      : result.diff === 0 ? "Stopped exactly on £100!"
+                      : `£${result.diff.toFixed(2)} short`}
+                  </div>
+                  {bestScore !== null && (
+                    <div style={{ marginTop: "4px", fontSize: "0.75rem", color: "#444" }}>Best: ±£{bestScore.toFixed(2)}</div>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={stopped ? handleStart : running ? handleStop : handleStart}
+                style={{
+                  width: "100%", padding: "18px",
+                  background: running ? "linear-gradient(135deg, #cc2244, #ff3355)"
+                    : stopped ? "linear-gradient(135deg, #1a4a1a, #226622)"
+                    : "linear-gradient(135deg, #7a3a00, #cc6600)",
+                  color: "#fff", border: "none", borderRadius: "8px",
+                  fontSize: "1.1rem", fontWeight: "bold", letterSpacing: "0.2em",
+                  textTransform: "uppercase", cursor: "pointer",
+                  boxShadow: running ? "0 4px 20px #ff334455" : stopped ? "0 4px 20px #22662244" : "0 4px 20px #cc660044",
+                  transition: "all 0.15s ease",
+                  animation: running ? "pulse 0.8s ease infinite" : "none",
+                }}
+              >
+                {stopped ? "▶ NEXT ROUND" : running ? "⏹ STOP PUMP" : "▶ START PUMP"}
+              </button>
+
+              <div style={{ textAlign: "center", marginTop: "8px", fontSize: "0.7rem", color: "#333", letterSpacing: "0.15em" }}>
+                SPACEBAR WORKS TOO
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", marginTop: "16px" }}>
+              <div style={{ flex: 1, background: "#111", border: "1px solid #222", borderRadius: "8px", padding: "12px" }}>
+                <div style={{ fontSize: "0.65rem", color: "#444", letterSpacing: "0.2em", marginBottom: "8px", textTransform: "uppercase" }}>Speed</div>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  {Object.keys(DIFFICULTY_SPEEDS).map(d => (
+                    <button key={d} onClick={() => { if (!running) setDifficulty(d); }} style={{
+                      flex: 1, padding: "5px 0",
+                      background: difficulty === d ? "#ff8c0022" : "transparent",
+                      border: `1px solid ${difficulty === d ? "#ff8c00" : "#222"}`,
+                      color: difficulty === d ? "#ff8c00" : "#444",
+                      borderRadius: "4px", fontSize: "0.65rem",
+                      cursor: running ? "default" : "pointer",
+                      letterSpacing: "0.1em", textTransform: "uppercase",
+                    }}>{d}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ flex: 1, background: "#111", border: "1px solid #222", borderRadius: "8px", padding: "12px" }}>
+                <div style={{ fontSize: "0.65rem", color: "#444", letterSpacing: "0.2em", marginBottom: "8px", textTransform: "uppercase" }}>Stats</div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem" }}>
+                  <div>
+                    <div style={{ color: "#555", fontSize: "0.6rem" }}>ROUND</div>
+                    <div style={{ color: "#ff8c00" }}>{round}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#555", fontSize: "0.6rem" }}>BEST</div>
+                    <div style={{ color: bestScore !== null ? "#ffd700" : "#333" }}>
+                      {bestScore !== null ? `±£${bestScore.toFixed(2)}` : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "#555", fontSize: "0.6rem" }}>WINS</div>
+                    <div style={{ color: "#00ff88" }}>{history.filter(h => h.grade.stars >= 4).length}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {history.length > 0 && (
+              <div style={{ marginTop: "12px", background: "#111", border: "1px solid #1a1a1a", borderRadius: "8px", padding: "12px" }}>
+                <div style={{ fontSize: "0.65rem", color: "#333", letterSpacing: "0.2em", marginBottom: "8px", textTransform: "uppercase" }}>Recent</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  {[...history].reverse().slice(0, 5).map((h, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.75rem", opacity: 1 - i * 0.15 }}>
+                      <span style={{ color: "#333" }}>R{h.round}</span>
+                      <span style={{ color: "#555" }}>£{h.value.toFixed(2)}</span>
+                      <span style={{ color: h.grade.color, fontSize: "0.7rem" }}>{h.grade.label}</span>
+                      <span style={{ fontSize: "0.7rem" }}>
+                        {[...Array(5)].map((_, s) => (
+                          <span key={s} style={{ color: s < h.grade.stars ? "#ffd700" : "#222" }}>★</span>
+                        ))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<FuelPumpGame />);
+  </script>
+</body>
+</html>

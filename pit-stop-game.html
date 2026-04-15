@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pit Stop</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0a; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    const S = {
+      IDLE: 'idle', ENTERING: 'entering', STOPPED: 'stopped',
+      JACKING: 'jacking', JACKED: 'jacked', LOWERING: 'lowering',
+      LEAVING: 'leaving', DONE: 'done',
+    };
+
+    function getRating(ms) {
+      if (ms < 2800) return { label: 'WORLD RECORD!', color: '#00ff88', stars: 5 };
+      if (ms < 4000) return { label: 'LIGHTNING STOP', color: '#aaff00', stars: 5 };
+      if (ms < 5500) return { label: 'CLEAN STOP', color: '#ffd700', stars: 4 };
+      if (ms < 7500) return { label: 'DECENT WORK', color: '#ffa500', stars: 3 };
+      if (ms < 11000) return { label: 'SLOW STOP', color: '#ff6347', stars: 2 };
+      return { label: 'CALL THE CRANE', color: '#ff2244', stars: 1 };
+    }
+
+    function Stars({ count, color }) {
+      return (
+        <div style={{ fontSize: '1.6rem', letterSpacing: '4px' }}>
+          {[1,2,3,4,5].map(i => (
+            <span key={i} style={{
+              color: i <= count ? color : '#222',
+              textShadow: i <= count ? `0 0 8px ${color}99` : 'none',
+            }}>★</span>
+          ))}
+        </div>
+      );
+    }
+
+    function CarSVG({ liftY = 0, tyresDone }) {
+      const groundY = 145;
+      const worn = '#111';
+      const fresh = '#cc2200';
+
+      function WheelGroup({ cx, idx, r }) {
+        const done = tyresDone[idx];
+        return (
+          <g>
+            <circle cx={cx} cy={groundY} r={r} fill={done ? fresh : worn} stroke="#2a2a2a" strokeWidth="3"/>
+            <circle cx={cx} cy={groundY} r={r * 0.52} fill="#0d0d0d"/>
+            <circle cx={cx} cy={groundY} r={r * 0.22} fill="#252525"/>
+            {[0,1,2,3,4].map(i => {
+              const angle = (i / 5) * Math.PI * 2;
+              const bx = cx + Math.cos(angle) * r * 0.36;
+              const by = groundY + Math.sin(angle) * r * 0.36;
+              return <circle key={i} cx={bx} cy={by} r={2.5} fill="#333"/>;
+            })}
+            {done && <circle cx={cx} cy={groundY} r={r} fill="none" stroke={fresh} strokeWidth="2.5" strokeDasharray="9 6" opacity="0.6"/>}
+          </g>
+        );
+      }
+
+      return (
+        <svg viewBox="0 0 500 180" style={{ width: '100%', display: 'block', overflow: 'visible' }}>
+          <rect x="0" y="148" width="500" height="32" fill="#161616"/>
+          <rect x="0" y="147" width="500" height="2" fill="#2a2a2a"/>
+          {[...Array(10)].map((_, i) => (
+            <rect key={i} x={i * 55} y="155" width="32" height="5" fill="#e8b800" opacity="0.18" rx="1"/>
+          ))}
+          <rect x="0" y="158" width="500" height="1" fill="#1f1f1f"/>
+
+          <g transform={`translate(0, ${-liftY})`} style={{ transition: liftY > 0 ? 'transform 0.55s cubic-bezier(0.4,0,0.2,1)' : 'transform 0.5s cubic-bezier(0.4,0,0.2,1)' }}>
+            <rect x="410" y="62" width="6" height="50" rx="2" fill="#990000"/>
+            <rect x="434" y="62" width="6" height="50" rx="2" fill="#990000"/>
+            <rect x="405" y="62" width="40" height="9" rx="3" fill="#bb0000"/>
+            <rect x="408" y="71" width="34" height="6" rx="2" fill="#cc0000" opacity="0.7"/>
+            <path d="M 68 133 L 445 133 L 445 142 L 68 142 Z" fill="#990000" opacity="0.5"/>
+            <path d="M 72 125 C 72 105 102 97 135 95 L 395 95 C 428 97 446 110 446 125 L 446 135 C 425 140 380 138 355 137 L 180 137 C 145 137 88 138 72 133 Z" fill="#e10600"/>
+            <path d="M 100 97 L 392 97 C 418 99 438 106 442 112 L 440 108 C 430 100 412 95 392 93 L 100 93 C 80 95 66 103 66 110 Z" fill="#ff4422" opacity="0.35"/>
+            <path d="M 130 120 L 390 120 L 390 126 L 130 126 Z" fill="white" opacity="0.15"/>
+            <path d="M 155 108 L 235 108 L 240 132 L 150 132 Z" fill="#cc0000"/>
+            <path d="M 305 108 L 385 108 L 385 132 L 300 132 Z" fill="#cc0000"/>
+            <ellipse cx="265" cy="96" rx="18" ry="8" fill="#0a0a0a"/>
+            <path d="M 222 101 Q 265 78 308 101 L 298 105 Q 265 87 232 105 Z" fill="#0d0d0d"/>
+            <ellipse cx="265" cy="104" rx="42" ry="11" fill="#0d0d0d"/>
+            <path d="M 228 100 Q 265 83 302 100" stroke="#383838" strokeWidth="6" fill="none" strokeLinecap="round"/>
+            <rect x="260" y="83" width="10" height="18" rx="4" fill="#383838"/>
+            <ellipse cx="258" cy="95" rx="14" ry="10" fill="#003399" opacity="0.7"/>
+            <path d="M 72 112 L 72 128 L 24 122 Z" fill="#cc0000"/>
+            <path d="M 45 118 L 72 116 L 72 123 L 45 121 Z" fill="#aa0000"/>
+            <rect x="14" y="128" width="88" height="8" rx="3" fill="#0d0d0d"/>
+            <rect x="22" y="120" width="15" height="10" rx="2" fill="#0d0d0d"/>
+            <rect x="44" y="120" width="15" height="10" rx="2" fill="#0d0d0d"/>
+            <rect x="66" y="120" width="15" height="10" rx="2" fill="#0d0d0d"/>
+            <rect x="14" y="118" width="5" height="20" rx="1" fill="#111"/>
+            <rect x="97" y="118" width="5" height="20" rx="1" fill="#111"/>
+            <text x="265" y="120" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="'Courier New', monospace" opacity="0.9">16</text>
+          </g>
+
+          <WheelGroup cx={112} idx={0} r={27}/>
+          <WheelGroup cx={112} idx={1} r={22}/>
+          <WheelGroup cx={378} idx={2} r={30}/>
+          <WheelGroup cx={378} idx={3} r={25}/>
+
+          {liftY > 10 && <>
+            <rect x="88" y="143" width="14" height={liftY * 0.9} rx="2" fill="#ffd700" opacity="0.8"/>
+            <rect x="354" y="143" width="14" height={liftY * 0.9} rx="2" fill="#ffd700" opacity="0.8"/>
+            <rect x="88" y="142" width="36" height="4" rx="2" fill="#e8c000"/>
+            <rect x="354" y="142" width="36" height="4" rx="2" fill="#e8c000"/>
+          </>}
+        </svg>
+      );
+    }
+
+    function TyreBtn({ label, done, active, onClick }) {
+      return (
+        <button
+          onClick={active && !done ? onClick : undefined}
+          style={{
+            width: '72px', height: '72px', borderRadius: '50%',
+            border: done ? '3px solid #cc2200' : active ? '3px solid #ffd700' : '3px solid #222',
+            background: done ? 'radial-gradient(circle at 38% 38%, #cc2200, #660000)'
+              : active ? 'radial-gradient(circle at 38% 38%, #2a2a2a, #111)'
+              : '#0d0d0d',
+            color: done ? '#fff' : active ? '#ffd700' : '#333',
+            fontSize: '0.75rem', fontWeight: 'bold', letterSpacing: '0.1em',
+            cursor: active && !done ? 'pointer' : 'default',
+            animation: active && !done ? 'tyrePulse 0.7s ease infinite' : 'none',
+            boxShadow: done ? '0 0 18px #cc220066' : active ? '0 0 18px #ffd70055' : 'none',
+            transition: 'all 0.2s ease',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', gap: '2px',
+            fontFamily: "'Courier New', monospace",
+            position: 'relative', overflow: 'hidden',
+          }}
+        >
+          <span style={{ fontSize: '1.2rem' }}>{done ? '✓' : '◎'}</span>
+          <span>{label}</span>
+          {active && !done && (
+            <div style={{
+              position: 'absolute', inset: 0, borderRadius: '50%',
+              background: 'radial-gradient(circle, #ffd70015 0%, transparent 70%)',
+              animation: 'tyrePulse 0.7s ease infinite',
+            }}/>
+          )}
+        </button>
+      );
+    }
+
+    function PitStopGame() {
+      const [stage, setStage] = useState(S.IDLE);
+      const [tyres, setTyres] = useState([false, false, false, false]);
+      const [liftY, setLiftY] = useState(0);
+      const [carX, setCarX] = useState(600);
+      const [elapsed, setElapsed] = useState(0);
+      const [bestTime, setBestTime] = useState(null);
+      const [runs, setRuns] = useState([]);
+      const [instructionText, setInstructionText] = useState('TAP TO START');
+
+      const startTimeRef = useRef(null);
+      const timerRef = useRef(null);
+      const stageRef = useRef(S.IDLE);
+      stageRef.current = stage;
+
+      const stopTimer = useCallback(() => { clearInterval(timerRef.current); }, []);
+
+      const startTimer = useCallback(() => {
+        startTimeRef.current = performance.now();
+        timerRef.current = setInterval(() => {
+          setElapsed(performance.now() - startTimeRef.current);
+        }, 30);
+      }, []);
+
+      useEffect(() => () => clearInterval(timerRef.current), []);
+
+      const doEnter = useCallback(() => {
+        setStage(S.ENTERING);
+        setCarX(600);
+        setTyres([false, false, false, false]);
+        setLiftY(0);
+        setElapsed(0);
+        setInstructionText('CAR ENTERING...');
+        setTimeout(() => setCarX(0), 50);
+        setTimeout(() => {
+          setStage(S.STOPPED);
+          setInstructionText('⬆ JACK UP THE CAR');
+          startTimer();
+        }, 1100);
+      }, [startTimer]);
+
+      const doJackUp = useCallback(() => {
+        if (stageRef.current !== S.STOPPED) return;
+        setStage(S.JACKING);
+        setInstructionText('JACKING UP...');
+        setLiftY(48);
+        setTimeout(() => {
+          setStage(S.JACKED);
+          setInstructionText('CHANGE ALL 4 TYRES!');
+        }, 600);
+      }, []);
+
+      const changeTyre = useCallback((idx) => {
+        if (stageRef.current !== S.JACKED) return;
+        setTyres(prev => {
+          const next = [...prev];
+          next[idx] = true;
+          return next;
+        });
+      }, []);
+
+      const doLower = useCallback(() => {
+        if (stageRef.current !== S.JACKED) return;
+        setStage(S.LOWERING);
+        setInstructionText('LOWERING...');
+        setLiftY(0);
+        setTimeout(() => {
+          setStage(S.LEAVING);
+          setInstructionText('GO GO GO! 🚀');
+          setCarX(-620);
+          stopTimer();
+          const t = performance.now() - startTimeRef.current;
+          setElapsed(t);
+          setBestTime(prev => prev === null || t < prev ? t : prev);
+          setRuns(prev => [...prev, t]);
+          setTimeout(() => {
+            setStage(S.DONE);
+            setInstructionText('TAP TO GO AGAIN');
+          }, 900);
+        }, 550);
+      }, [stopTimer]);
+
+      const allDone = tyres.every(Boolean);
+
+      const handleMainAction = () => {
+        if (stage === S.IDLE || stage === S.DONE) { doEnter(); return; }
+        if (stage === S.STOPPED) { doJackUp(); return; }
+        if (stage === S.JACKED && allDone) { doLower(); return; }
+      };
+
+      const mainBtnLabel = () => {
+        if (stage === S.IDLE) return '🏎  START';
+        if (stage === S.DONE) return '🔄  AGAIN';
+        if (stage === S.STOPPED) return '⬆  JACK UP';
+        if (stage === S.JACKING) return '⏳ JACKING...';
+        if (stage === S.JACKED) return allDone ? '⬇  LOWER CAR' : `TYRES: ${tyres.filter(Boolean).length}/4`;
+        if (stage === S.LOWERING) return '⏳ LOWERING...';
+        if (stage === S.LEAVING) return '🚀 GO GO GO!';
+        return '...';
+      };
+
+      const mainBtnActive = [S.IDLE, S.DONE, S.STOPPED].includes(stage) || (stage === S.JACKED && allDone);
+      const mainBtnColor = mainBtnActive
+        ? stage === S.JACKED && allDone ? 'linear-gradient(135deg, #005500, #008800)' : 'linear-gradient(135deg, #880000, #cc0000)'
+        : 'linear-gradient(135deg, #1a1a1a, #222)';
+
+      const rating = stage === S.DONE ? getRating(elapsed) : null;
+
+      return (
+        <div style={{
+          minHeight: '100vh',
+          background: '#0a0a0a',
+          backgroundImage: `radial-gradient(ellipse at 50% 0%, #1a0800 0%, transparent 60%), repeating-linear-gradient(90deg, transparent, transparent 49px, #111 49px, #111 50px)`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: "'Courier New', monospace", padding: '16px',
+        }}>
+          <style>{`
+            @keyframes tyrePulse {
+              0%,100% { transform: scale(1); box-shadow: 0 0 12px #ffd70044; }
+              50% { transform: scale(1.06); box-shadow: 0 0 24px #ffd70099; }
+            }
+            @keyframes slideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+            @keyframes blinkText { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+            @keyframes revLights { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+            .main-btn:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
+            .main-btn:active:not(:disabled) { transform: translateY(0px); }
+          `}</style>
+
+          <div style={{ width: '100%', maxWidth: '520px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <div style={{ fontSize: '2rem', marginBottom: '4px' }}>🏁</div>
+              <h1 style={{ margin: 0, color: '#e10600', fontSize: 'clamp(1.4rem, 5vw, 2rem)', letterSpacing: '0.2em', textTransform: 'uppercase', textShadow: '0 0 30px #e1060066' }}>PIT STOP</h1>
+              <p style={{ margin: '4px 0 0', color: '#333', fontSize: '0.7rem', letterSpacing: '0.2em' }}>RAISE · CHANGE · LOWER · RELEASE</p>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', marginBottom: '16px' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.6rem', color: '#333', letterSpacing: '0.2em', marginBottom: '3px' }}>TIME</div>
+                <div style={{
+                  fontSize: 'clamp(1.8rem, 6vw, 2.4rem)',
+                  color: stage === S.LEAVING || stage === S.DONE ? '#00ff88' : stage === S.IDLE ? '#222' : '#ffd700',
+                  textShadow: stage === S.DONE ? '0 0 20px #00ff8866' : 'none',
+                  fontWeight: 'bold', letterSpacing: '0.05em', minWidth: '160px', textAlign: 'center',
+                  transition: 'color 0.3s ease',
+                }}>
+                  {(elapsed / 1000).toFixed(3)}s
+                </div>
+              </div>
+              {bestTime !== null && (
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.6rem', color: '#333', letterSpacing: '0.2em', marginBottom: '3px' }}>BEST</div>
+                  <div style={{ fontSize: 'clamp(1.8rem, 6vw, 2.4rem)', color: '#e8b800', fontWeight: 'bold', letterSpacing: '0.05em' }}>
+                    {(bestTime / 1000).toFixed(3)}s
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={{
+              background: '#111', border: '2px solid #1e1e1e', borderRadius: '12px', overflow: 'hidden',
+              boxShadow: stage === S.JACKED ? '0 0 40px #e1060018' : '0 8px 30px #000',
+              transition: 'box-shadow 0.5s ease',
+            }}>
+              <div style={{
+                background: '#0d0d0d', borderBottom: '1px solid #1a1a1a',
+                padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              }}>
+                <div style={{ fontSize: '0.75rem', color: '#e10600', letterSpacing: '0.15em', animation: [S.STOPPED, S.JACKED].includes(stage) ? 'blinkText 1s ease infinite' : 'none' }}>
+                  {instructionText}
+                </div>
+                <div style={{ display: 'flex', gap: '5px' }}>
+                  {['#cc0000','#cc0000','#cc0000','#cc0000','#cc0000'].map((c,i) => (
+                    <div key={i} style={{
+                      width: 10, height: 10, borderRadius: '50%',
+                      background: stage === S.LEAVING || stage === S.DONE ? '#00cc00' : c,
+                      opacity: stage === S.IDLE ? 0.2 : 1,
+                      boxShadow: stage === S.LEAVING ? '0 0 6px #00cc00' : '0 0 4px #cc000066',
+                      animation: stage === S.ENTERING ? `revLights ${0.2 + i*0.08}s ease infinite` : 'none',
+                      transition: 'background 0.3s ease',
+                    }}/>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ padding: '12px 0 0', overflow: 'hidden', position: 'relative' }}>
+                <div style={{
+                  transform: `translateX(${carX}px)`,
+                  transition: stage === S.ENTERING
+                    ? 'transform 1.0s cubic-bezier(0.25, 0.46, 0.45, 0.94)'
+                    : stage === S.LEAVING
+                    ? 'transform 0.85s cubic-bezier(0.55, 0, 1, 0.45)'
+                    : 'none',
+                }}>
+                  <CarSVG liftY={liftY} tyresDone={tyres}/>
+                </div>
+              </div>
+
+              <div style={{ padding: '12px 20px 20px', display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap', minHeight: '96px', alignItems: 'center' }}>
+                {[S.JACKED, S.LOWERING, S.LEAVING, S.DONE].includes(stage) ? (
+                  ['FL','FR','RL','RR'].map((label, i) => (
+                    <TyreBtn key={label} label={label} done={tyres[i]} active={stage === S.JACKED} onClick={() => changeTyre(i)}/>
+                  ))
+                ) : stage === S.JACKING ? (
+                  <div style={{ color: '#333', fontSize: '0.75rem', letterSpacing: '0.15em' }}>RAISING CAR...</div>
+                ) : stage === S.STOPPED ? (
+                  <div style={{ color: '#333', fontSize: '0.75rem', letterSpacing: '0.15em', animation: 'blinkText 0.8s ease infinite' }}>CLICK JACK UP ↑</div>
+                ) : (
+                  <div style={{ color: '#1a1a1a', fontSize: '0.75rem', letterSpacing: '0.15em' }}>STANDING BY</div>
+                )}
+              </div>
+            </div>
+
+            {stage === S.DONE && rating && (
+              <div style={{ marginTop: '14px', background: '#0d0d0d', border: `1px solid ${rating.color}44`, borderRadius: '10px', padding: '16px', textAlign: 'center', animation: 'slideIn 0.4s ease' }}>
+                <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: rating.color, letterSpacing: '0.15em', textShadow: `0 0 16px ${rating.color}66` }}>{rating.label}</div>
+                <Stars count={rating.stars} color={rating.color}/>
+                <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#444' }}>
+                  {bestTime === elapsed ? '🏆 NEW BEST!' : `Best: ${(bestTime/1000).toFixed(3)}s`}
+                </div>
+              </div>
+            )}
+
+            <button
+              className="main-btn"
+              onClick={handleMainAction}
+              disabled={!mainBtnActive}
+              style={{
+                width: '100%', marginTop: '14px', padding: '16px',
+                background: mainBtnColor,
+                color: mainBtnActive ? '#fff' : '#333',
+                border: 'none', borderRadius: '8px', fontSize: '1rem',
+                fontWeight: 'bold', letterSpacing: '0.2em', textTransform: 'uppercase',
+                cursor: mainBtnActive ? 'pointer' : 'default',
+                boxShadow: mainBtnActive ? '0 4px 20px #cc000033' : 'none',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {mainBtnLabel()}
+            </button>
+
+            {runs.length > 1 && (
+              <div style={{ marginTop: '12px', background: '#0d0d0d', border: '1px solid #181818', borderRadius: '8px', padding: '12px' }}>
+                <div style={{ fontSize: '0.6rem', color: '#2a2a2a', letterSpacing: '0.2em', marginBottom: '8px' }}>RECENT STOPS</div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {[...runs].reverse().slice(0, 8).map((t, i) => {
+                    const r = getRating(t);
+                    return (
+                      <div key={i} style={{ fontSize: '0.75rem', color: r.color, background: '#111', borderRadius: '4px', padding: '3px 8px', border: `1px solid ${r.color}33` }}>
+                        {(t/1000).toFixed(3)}s
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<PitStopGame />);
+  </script>
+</body>
+</html>

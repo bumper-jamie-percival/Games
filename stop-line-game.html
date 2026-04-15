@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stop Line</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #090909; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ── WORLD CONSTANTS ───────────────────────────────────────────────────────────
+    const LINE  = 1000;
+    const SCALE = 0.27;
+    const VEHX  = 80;
+
+    // ── DATA ──────────────────────────────────────────────────────────────────────
+    const VEHICLES = [
+      { id:"f1",    name:"F1 CAR",     emo:"🏎️", vel:700, dc:1450, col:"#cc0000", w:72, h:22, tip:"Carbon brakes — stops on a coin" },
+      { id:"sport", name:"SPORTS CAR", emo:"🚗",  vel:480, dc:850,  col:"#0055cc", w:58, h:26, tip:"Responsive & quick to stop" },
+      { id:"family",name:"FAMILY CAR", emo:"🚙",  vel:360, dc:590,  col:"#228833", w:56, h:28, tip:"Average braking, manageable" },
+      { id:"bus",   name:"BUS",        emo:"🚌",  vel:270, dc:330,  col:"#cc8800", w:92, h:36, tip:"Heavy. Don't leave it late" },
+      { id:"truck", name:"TRUCK",      emo:"🚛",  vel:235, dc:255,  col:"#774433", w:104,h:33, tip:"Very heavy. Brake very early" },
+      { id:"moto",  name:"MOTORBIKE",  emo:"🏍️", vel:550, dc:940,  col:"#222222", w:38, h:18, tip:"Fast but bites back on ice" },
+    ];
+
+    const WEATHERS = [
+      { id:"sunny", name:"☀️ DRY",   grip:1.0,  fog:9999, rain:false, snow:false },
+      { id:"rain",  name:"🌧️ RAIN",  grip:1.6,  fog:9999, rain:true,  snow:false },
+      { id:"fog",   name:"🌫️ FOG",   grip:1.15, fog:280,  rain:false, snow:false },
+      { id:"storm", name:"⛈️ STORM", grip:2.1,  fog:9999, rain:true,  snow:false },
+      { id:"snow",  name:"❄️ SNOW",  grip:2.5,  fog:340,  rain:false, snow:true  },
+    ];
+
+    const TRACKS = [
+      { id:"dry",    name:"🏁 DRY TARMAC", grip:1.0  },
+      { id:"wet",    name:"💧 WET TARMAC", grip:1.4  },
+      { id:"gravel", name:"🪨 GRAVEL",      grip:1.85 },
+      { id:"ice",    name:"🧊 BLACK ICE",   grip:3.3  },
+    ];
+
+    const GRADES = [
+      { max:4,   lbl:"PERFECT",   col:"#ffff00", sub:"Surgical precision!" },
+      { max:15,  lbl:"EXCELLENT", col:"#00ffff", sub:"Almost perfect" },
+      { max:45,  lbl:"GREAT",     col:"#00ff88", sub:"Well judged" },
+      { max:95,  lbl:"GOOD",      col:"#88ff00", sub:"Safe stop" },
+      { max:200, lbl:"OKAY",      col:"#ff8800", sub:"A bit too cautious" },
+      { max:9999,lbl:"TOO FAR",   col:"#ff5555", sub:"Way too early" },
+    ];
+
+    const getGrade = gap =>
+      gap < 0
+        ? { lbl:"BUST!", col:"#ff0044", sub:"You crossed the line!" }
+        : GRADES.find(g => gap < g.max) ?? GRADES.at(-1);
+
+    const rnd  = (a, b) => a + Math.random() * (b - a);
+    const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+    // ── VEHICLE SVG ───────────────────────────────────────────────────────────────
+    function VehicleSVG({ v, braking }) {
+      const { w, h, col, id } = v;
+      const brakeLightCol = braking ? "#ff2200" : "#440000";
+      return (
+        <svg width={w} height={h + 8} viewBox={`${-4} ${-4} ${w+8} ${h+8}`} style={{ overflow:"visible" }}>
+          <ellipse cx={w/2} cy={h+2} rx={w*0.45} ry={4} fill="#000" opacity="0.25"/>
+          <rect x="0" y="0" width={w} height={h} rx={id==="moto"?3:5} fill={col}/>
+          <rect x={w*0.2} y={h*0.1} width={w*0.6} height={h*0.8} rx={3} fill="rgba(255,255,255,0.07)"/>
+          {id !== "moto" && id !== "truck" && (
+            <rect x={w*0.62} y={h*0.14} width={w*0.24} height={h*0.72} rx={2} fill="#1a3855" opacity="0.85"/>
+          )}
+          {id !== "moto" && (
+            <rect x={w*0.06} y={h*0.18} width={w*0.18} height={h*0.64} rx={2} fill="#1a2a3a" opacity="0.7"/>
+          )}
+          {[
+            [w*0.18-4, -4], [w*0.18-4, h-2],
+            [w*0.78-4, -4], [w*0.78-4, h-2],
+          ].map(([x,y],i) => (
+            <rect key={i} x={x} y={y} width={8} height={6} rx={1} fill="#111"/>
+          ))}
+          <rect x={1} y={2} width={5} height={h*0.3} rx={1} fill={brakeLightCol}/>
+          <rect x={1} y={h-h*0.3-2} width={5} height={h*0.3} rx={1} fill={brakeLightCol}/>
+          <rect x={w-6} y={2} width={5} height={h*0.3} rx={1} fill="#ffffaa" opacity="0.9"/>
+          <rect x={w-6} y={h-h*0.3-2} width={5} height={h*0.3} rx={1} fill="#ffffaa" opacity="0.9"/>
+        </svg>
+      );
+    }
+
+    // ── WEATHER PARTICLES ─────────────────────────────────────────────────────────
+    function WeatherParticles({ weather }) {
+      const particles = useRef(
+        Array.from({length:20},(_,i)=>({ x:rnd(0,100), delay:rnd(0,1.5), speed:rnd(0.4,1.0) }))
+      ).current;
+      if (!weather.rain && !weather.snow) return null;
+      return (
+        <div style={{ position:"absolute", inset:0, pointerEvents:"none", overflow:"hidden" }}>
+          {particles.map((p,i) => (
+            <div key={i} style={{
+              position:"absolute", left:`${p.x}%`, top:"-10px",
+              width: weather.snow ? "4px" : "2px",
+              height: weather.snow ? "4px" : "14px",
+              borderRadius: weather.snow ? "50%" : "1px",
+              background: weather.snow ? "rgba(220,240,255,0.8)" : "rgba(150,180,255,0.5)",
+              transform: weather.rain ? "rotate(15deg)" : "none",
+              animation: `fall ${p.speed}s ${p.delay}s linear infinite`,
+            }}/>
+          ))}
+        </div>
+      );
+    }
+
+    // ── BADGE ─────────────────────────────────────────────────────────────────────
+    function Badge({ col, children, blink }) {
+      return (
+        <div style={{
+          padding:"3px 10px", background:`${col}18`, border:`1px solid ${col}55`,
+          borderRadius:"20px", fontSize:"0.65rem", color:col,
+          letterSpacing:"0.1em", textTransform:"uppercase",
+          animation: blink ? "eventFlash 0.4s ease infinite" : "none",
+        }}>{children}</div>
+      );
+    }
+
+    function btnStyle(bg, border) {
+      return {
+        width:"100%", padding:"15px", background:bg, border:`2px solid ${border}`,
+        borderRadius:"8px", color:"#fff", fontSize:"1rem", fontFamily:"monospace",
+        fontWeight:"bold", letterSpacing:"0.2em", textTransform:"uppercase",
+        cursor:"pointer", boxShadow:`0 4px 20px ${border}44`,
+        transition:"all 0.15s", userSelect:"none", WebkitUserSelect:"none",
+      };
+    }
+
+    // ── MAIN GAME ─────────────────────────────────────────────────────────────────
+    function StopLineGame() {
+      const [phase,        setPhase]        = useState("idle");
+      const [vehicle,      setVehicle]      = useState(VEHICLES[0]);
+      const [weather,      setWeather]      = useState(WEATHERS[0]);
+      const [track,        setTrack]        = useState(TRACKS[0]);
+      const [pos,          setPos]          = useState(0);
+      const [vel,          setVel]          = useState(0);
+      const [braking,      setBraking]      = useState(false);
+      const [countdown,    setCountdown]    = useState(3);
+      const [result,       setResult]       = useState(null);
+      const [best,         setBest]         = useState(null);
+      const [history,      setHistory]      = useState([]);
+      const [event,        setEvent]        = useState(null);
+      const [activeEvent,  setActiveEvent]  = useState(null);
+      const [brakeWarning, setBrakeWarning] = useState(false);
+
+      const posRef        = useRef(0);
+      const velRef        = useRef(0);
+      const brakingRef    = useRef(false);
+      const decelRef      = useRef(0);
+      const rafRef        = useRef(null);
+      const lastRef       = useRef(null);
+      const eventRef      = useRef(null);
+      const activeEvRef   = useRef(null);
+      const activeEvTimer = useRef(null);
+
+      const setupRound = () => {
+        cancelAnimationFrame(rafRef.current);
+        clearTimeout(activeEvTimer.current);
+
+        const v = pick(VEHICLES);
+        const w = pick(WEATHERS);
+        const t = pick(TRACKS);
+
+        const startVel       = v.vel * rnd(0.85, 1.15);
+        const effectiveDecel = v.dc / (w.grip * t.grip);
+
+        let ev = null;
+        const evRoll = Math.random();
+        const evPos  = rnd(200, LINE - 250);
+        if      (evRoll < 0.25) ev = { type:"gust", pos:evPos, icon:"💨", desc:"SPEED GUST",  triggered:false };
+        else if (evRoll < 0.50) ev = { type:"oil",  pos:evPos, icon:"🛢️", desc:"OIL SLICK",   triggered:false };
+        else if (evRoll < 0.60) ev = { type:"bump", pos:evPos, icon:"⚠️", desc:"SPEED BUMP",  triggered:false };
+
+        setVehicle(v); setWeather(w); setTrack(t);
+        setPos(0); setVel(startVel);
+        setBraking(false); setResult(null);
+        setEvent(ev); setActiveEvent(null); setBrakeWarning(false);
+
+        posRef.current     = 0;
+        velRef.current     = startVel;
+        brakingRef.current = false;
+        decelRef.current   = effectiveDecel;
+        eventRef.current   = ev;
+        activeEvRef.current= null;
+
+        setPhase("brief");
+        let cd = 3;
+        setCountdown(cd);
+        const cdInterval = setInterval(() => {
+          cd--;
+          if (cd <= 0) {
+            clearInterval(cdInterval);
+            setPhase("driving");
+            lastRef.current = null;
+            rafRef.current = requestAnimationFrame(gameLoop);
+          } else {
+            setCountdown(cd);
+          }
+        }, 900);
+      };
+
+      const gameLoop = (ts) => {
+        if (!lastRef.current) lastRef.current = ts;
+        const dt = Math.min((ts - lastRef.current) / 1000, 0.05);
+        lastRef.current = ts;
+
+        let v = velRef.current;
+        let p = posRef.current;
+        const ev = eventRef.current;
+
+        if (ev && !ev.triggered && p >= ev.pos) {
+          ev.triggered = true;
+          eventRef.current = { ...ev, triggered: true };
+          const dur = ev.type === "bump" ? 300 : 500;
+
+          if (ev.type === "gust") {
+            velRef.current *= 1.22;
+            v = velRef.current;
+          } else if (ev.type === "bump") {
+            velRef.current *= 0.75;
+            v = velRef.current;
+            if (!brakingRef.current) decelRef.current *= 0.5;
+          } else if (ev.type === "oil") {
+            const origDecel = decelRef.current;
+            decelRef.current *= 0.35;
+            activeEvRef.current = "oil";
+            setActiveEvent("oil");
+            clearTimeout(activeEvTimer.current);
+            activeEvTimer.current = setTimeout(() => {
+              decelRef.current = origDecel;
+              activeEvRef.current = null;
+              setActiveEvent(null);
+            }, dur);
+          }
+          setActiveEvent(ev.type);
+          setTimeout(() => setActiveEvent(null), 600);
+        }
+
+        if (brakingRef.current) {
+          v = Math.max(0, v - decelRef.current * dt);
+        }
+        p += v * dt;
+
+        if (p >= LINE) {
+          cancelAnimationFrame(rafRef.current);
+          posRef.current = LINE + 5;
+          velRef.current = 0;
+          setPos(LINE + 5); setVel(0);
+          finishRound(LINE + 5);
+          return;
+        }
+
+        if (v <= 0) {
+          cancelAnimationFrame(rafRef.current);
+          posRef.current = p;
+          velRef.current = 0;
+          setPos(p); setVel(0);
+          finishRound(p);
+          return;
+        }
+
+        posRef.current = p;
+        velRef.current = v;
+        setPos(p); setVel(v);
+
+        const stopDist  = (v * v) / (2 * decelRef.current);
+        const distToLine = LINE - p;
+        setBrakeWarning(stopDist * 1.1 >= distToLine && !brakingRef.current);
+
+        rafRef.current = requestAnimationFrame(gameLoop);
+      };
+
+      const finishRound = (finalPos) => {
+        const gap = LINE - finalPos;
+        const g   = getGrade(gap);
+        const r   = { gap, grade: g, pos: finalPos };
+        setResult(r);
+        setPhase("result");
+        setBrakeWarning(false);
+        if (gap >= 0 && (best === null || gap < best)) setBest(gap);
+        setHistory(h => [...h, r]);
+      };
+
+      const doBrake = () => {
+        if (phase !== "driving" || brakingRef.current) return;
+        brakingRef.current = true;
+        setBraking(true);
+      };
+
+      useEffect(() => {
+        const fn = (e) => { if (e.code === "Space") { e.preventDefault(); doBrake(); } };
+        window.addEventListener("keydown", fn);
+        return () => window.removeEventListener("keydown", fn);
+      }, [phase]);
+
+      useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+      const lineScreenX = (LINE - pos) * SCALE + VEHX;
+      const evScreenX   = event ? (event.pos - pos) * SCALE + VEHX : null;
+      const dist        = LINE - pos;
+      const fogOpacity  = weather.fog < 9999
+        ? dist < weather.fog ? Math.min(1, 1 - dist / weather.fog) : 0
+        : 1;
+      const speedKph    = Math.round(vel * 0.36);
+      const stopDistM   = vel > 0 ? ((vel * vel) / (2 * decelRef.current) * 0.1).toFixed(0) : 0;
+      const effectMult  = (weather.grip * track.grip).toFixed(1);
+
+      return (
+        <div style={{
+          minHeight:"100vh", background:"#090909",
+          backgroundImage:"linear-gradient(#0f0f0f 1px,transparent 1px),linear-gradient(90deg,#0f0f0f 1px,transparent 1px)",
+          backgroundSize:"50px 50px",
+          display:"flex", alignItems:"center", justifyContent:"center",
+          fontFamily:"'Courier New',monospace", padding:"16px",
+        }}>
+          <style>{`
+            @keyframes fall { from{transform:translateY(-10px)} to{transform:translateY(170px)} }
+            @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+            @keyframes slideUp { from{transform:translateY(12px);opacity:0} to{transform:translateY(0);opacity:1} }
+            @keyframes pop { 0%{transform:scale(0.88);opacity:0} 55%{transform:scale(1.04)} 100%{transform:scale(1);opacity:1} }
+            @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-4px)} 60%{transform:translateX(4px)} }
+            @keyframes eventFlash { 0%,100%{opacity:1} 50%{opacity:0} }
+          `}</style>
+
+          <div style={{ width:"100%", maxWidth:"480px" }}>
+
+            {/* HEADER */}
+            <div style={{ textAlign:"center", marginBottom:"14px" }}>
+              <div style={{ fontSize:"1.8rem" }}>🛑</div>
+              <h1 style={{
+                margin:"2px 0 0", color:"#ff2200",
+                fontSize:"clamp(1.3rem,5vw,1.9rem)",
+                letterSpacing:"0.22em",
+                textShadow:"0 0 20px #ff220066",
+              }}>STOP LINE</h1>
+              <div style={{ color:"#2a2a2a", fontSize:"0.65rem", letterSpacing:"0.25em" }}>
+                BRAKE. JUDGE. SCORE.
+              </div>
+            </div>
+
+            {/* CONDITIONS */}
+            {phase !== "idle" && (
+              <div style={{ display:"flex", gap:"6px", flexWrap:"wrap", marginBottom:"10px", animation:"slideUp 0.3s ease" }}>
+                <Badge col="#cc0000">{vehicle.emo} {vehicle.name}</Badge>
+                <Badge col="#0066aa">{weather.name}</Badge>
+                <Badge col="#445544">{track.name}</Badge>
+                {event && (
+                  <Badge col="#885500" blink={activeEvent === event?.type}>
+                    {event.icon} {event.desc}
+                  </Badge>
+                )}
+              </div>
+            )}
+
+            {/* ROAD */}
+            <div style={{
+              position:"relative", height:"160px",
+              background:"#1a1a1a", border:"2px solid #222",
+              borderRadius:"12px", overflow:"hidden", marginBottom:"12px",
+              boxShadow: brakeWarning ? "0 0 30px #ff220044" : "0 4px 20px #000",
+              transition:"box-shadow 0.2s",
+            }}>
+              <div style={{ position:"absolute", top:0, left:0, right:0, height:"28px", background:"#0a1a0a" }}/>
+              <div style={{ position:"absolute", bottom:0, left:0, right:0, height:"28px", background:"#0a1a0a" }}/>
+              <div style={{
+                position:"absolute", top:"28px", left:0, right:0, height:"8px",
+                backgroundImage:"repeating-linear-gradient(90deg,#cc0000 0px,#cc0000 20px,#fff 20px,#fff 40px)",
+                backgroundPositionX:`${-(pos * SCALE % 40).toFixed(1)}px`,
+              }}/>
+              <div style={{
+                position:"absolute", bottom:"28px", left:0, right:0, height:"8px",
+                backgroundImage:"repeating-linear-gradient(90deg,#cc0000 0px,#cc0000 20px,#fff 20px,#fff 40px)",
+                backgroundPositionX:`${-(pos * SCALE % 40).toFixed(1)}px`,
+              }}/>
+              <div style={{ position:"absolute", top:"36px", bottom:"36px", left:0, right:0, background:"#333" }}>
+                <div style={{
+                  position:"absolute", top:"50%", left:0, right:0, height:"3px",
+                  transform:"translateY(-50%)",
+                  backgroundImage:"repeating-linear-gradient(90deg,rgba(255,255,255,0.6) 0px,rgba(255,255,255,0.6) 35px,transparent 35px,transparent 70px)",
+                  backgroundPositionX:`${-(pos * SCALE % 70).toFixed(1)}px`,
+                }}/>
+
+                {event && evScreenX > VEHX && evScreenX < 500 && !event.triggered && (
+                  <div style={{
+                    position:"absolute", left:`${evScreenX - 10}px`,
+                    top:"50%", transform:"translateY(-50%)",
+                    fontSize:"1.1rem",
+                    filter:"drop-shadow(0 0 6px rgba(255,150,0,0.8))",
+                    animation:"eventFlash 0.6s ease infinite",
+                  }}>{event.icon}</div>
+                )}
+
+                <div style={{
+                  position:"absolute", left:`${lineScreenX - 3}px`,
+                  top:0, bottom:0, width:"6px",
+                  background:"white",
+                  opacity: fogOpacity,
+                  boxShadow:`0 0 10px rgba(255,255,255,${fogOpacity * 0.6})`,
+                  transition:"opacity 0.1s linear",
+                }}/>
+
+                {phase === "result" && result && result.gap >= 0 && result.gap < 300 && (
+                  <div style={{
+                    position:"absolute", left:`${VEHX + vehicle.w + 4}px`,
+                    top:"50%", transform:"translateY(-50%)",
+                    height:"2px",
+                    width:`${Math.min(result.gap * SCALE, 200)}px`,
+                    background:result.grade.col,
+                    boxShadow:`0 0 8px ${result.grade.col}`,
+                    transition:"width 0.4s ease",
+                  }}>
+                    <div style={{
+                      position:"absolute", right:0, top:"-14px",
+                      fontSize:"0.6rem", color:result.grade.col,
+                      whiteSpace:"nowrap", fontFamily:"monospace",
+                      animation:"slideUp 0.3s ease",
+                    }}>
+                      {(result.gap * 0.1).toFixed(1)}m
+                    </div>
+                  </div>
+                )}
+
+                <div style={{
+                  position:"absolute", left:`${VEHX}px`,
+                  top:"50%", transform:"translateY(-50%)",
+                  animation: activeEvent ? "shake 0.3s ease" : "none",
+                }}>
+                  <VehicleSVG v={vehicle} braking={braking}/>
+                </div>
+              </div>
+
+              <WeatherParticles weather={weather}/>
+
+              {weather.fog < 9999 && (
+                <div style={{ position:"absolute", inset:0, background:"rgba(200,210,220,0.28)", pointerEvents:"none" }}/>
+              )}
+
+              {phase === "brief" && (
+                <div style={{
+                  position:"absolute", inset:0,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  background:"rgba(0,0,0,0.6)",
+                  fontSize:"3rem", color:"#ff8800", fontWeight:"bold",
+                  textShadow:"0 0 20px #ff880099",
+                  animation:"blink 0.9s ease infinite",
+                }}>
+                  {countdown}
+                </div>
+              )}
+
+              {phase === "driving" && vel > 0 && pos < 20 && (
+                <div style={{
+                  position:"absolute", inset:0,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  fontSize:"2rem", color:"#00ff88", fontWeight:"bold", letterSpacing:"0.2em",
+                  textShadow:"0 0 20px #00ff8899",
+                  pointerEvents:"none",
+                  animation:"blink 0.4s ease 3",
+                }}>GO!</div>
+              )}
+
+              {brakeWarning && phase === "driving" && (
+                <div style={{
+                  position:"absolute", bottom:"6px", left:0, right:0,
+                  textAlign:"center", fontSize:"0.65rem", color:"#ff2200",
+                  letterSpacing:"0.25em", animation:"blink 0.3s ease infinite",
+                }}>⚠ BRAKE NOW ⚠</div>
+              )}
+            </div>
+
+            {/* SPEED + INFO */}
+            {(phase === "brief" || phase === "driving") && (
+              <div style={{ display:"flex", gap:"8px", marginBottom:"12px", animation:"slideUp 0.25s ease" }}>
+                <div style={{ flex:2, background:"#0a0a0a", border:"1px solid #1a1a1a", borderRadius:"8px", padding:"10px 12px" }}>
+                  <div style={{ fontSize:"0.6rem", color:"#333", letterSpacing:"0.2em", marginBottom:"4px" }}>SPEED</div>
+                  <div style={{ fontSize:"1.8rem", color:"#fff", fontWeight:"bold", textShadow: speedKph > 150 ? "0 0 12px #ff660066" : "none" }}>
+                    {speedKph}<span style={{ fontSize:"0.7rem", color:"#444" }}>km/h</span>
+                  </div>
+                  <div style={{ height:"3px", background:"#111", borderRadius:"2px", marginTop:"4px" }}>
+                    <div style={{
+                      height:"100%",
+                      width:`${Math.min(100, (vel / vehicle.vel) * 100)}%`,
+                      background: vel > vehicle.vel * 0.8 ? "#ff2200" : vel > vehicle.vel * 0.5 ? "#ff8800" : "#00aa44",
+                      borderRadius:"2px", transition:"width 0.1s, background 0.3s",
+                    }}/>
+                  </div>
+                </div>
+                <div style={{ flex:1, background:"#0a0a0a", border:"1px solid #1a1a1a", borderRadius:"8px", padding:"10px 12px" }}>
+                  <div style={{ fontSize:"0.6rem", color:"#333", letterSpacing:"0.2em", marginBottom:"4px" }}>GRIP×</div>
+                  <div style={{ fontSize:"1.4rem", fontWeight:"bold", color: +effectMult > 2.5 ? "#ff2200" : +effectMult > 1.5 ? "#ff8800" : "#00ff88" }}>
+                    {effectMult}×
+                  </div>
+                </div>
+                <div style={{ flex:1.2, background:"#0a0a0a", border:"1px solid #1a1a1a", borderRadius:"8px", padding:"10px 12px" }}>
+                  <div style={{ fontSize:"0.6rem", color:"#333", letterSpacing:"0.2em", marginBottom:"4px" }}>STOP IN</div>
+                  <div style={{ fontSize:"1.3rem", fontWeight:"bold", color: brakeWarning ? "#ff2200" : "#888", animation: brakeWarning ? "blink 0.3s ease infinite" : "none" }}>
+                    {stopDistM}m
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* RESULT */}
+            {phase === "result" && result && (
+              <div style={{
+                padding:"16px", background:"#0a0a0a",
+                border:`2px solid ${result.grade.col}44`,
+                borderRadius:"12px", marginBottom:"12px", textAlign:"center",
+                animation: result.gap < 0 ? "shake 0.5s ease" : "pop 0.4s ease",
+              }}>
+                <div style={{ fontSize:"1.7rem", fontWeight:"bold", color:result.grade.col, letterSpacing:"0.15em", textShadow:`0 0 16px ${result.grade.col}88` }}>
+                  {result.grade.lbl}
+                </div>
+                <div style={{ color:"#555", fontSize:"0.8rem", marginTop:"2px" }}>{result.grade.sub}</div>
+                {result.gap >= 0 && (
+                  <div style={{ marginTop:"8px", color:"#888", fontSize:"0.8rem" }}>
+                    {(result.gap * 0.1).toFixed(1)}m from the line
+                  </div>
+                )}
+                {best !== null && result.gap >= 0 && (
+                  <div style={{ marginTop:"4px", color:"#333", fontSize:"0.7rem" }}>BEST: {(best * 0.1).toFixed(1)}m</div>
+                )}
+              </div>
+            )}
+
+            {/* TIP */}
+            {phase === "brief" && (
+              <div style={{
+                padding:"10px 14px", background:"#0a0a0a",
+                border:"1px solid #1a1a1a", borderRadius:"8px",
+                marginBottom:"10px", fontSize:"0.75rem", color:"#555",
+                animation:"slideUp 0.3s ease",
+              }}>
+                💡 {vehicle.tip}
+              </div>
+            )}
+
+            {/* BUTTONS */}
+            {phase === "idle" && (
+              <button onClick={setupRound} style={btnStyle("#660000","#cc0000")}>▶ START ENGINE</button>
+            )}
+            {phase === "driving" && (
+              <button
+                onMouseDown={doBrake}
+                onTouchStart={e => { e.preventDefault(); doBrake(); }}
+                disabled={braking}
+                style={{
+                  ...btnStyle(braking?"#001100":"#660000", braking?"#004400":"#cc0000"),
+                  fontSize:"1.3rem",
+                  animation: brakeWarning && !braking ? "blink 0.3s ease infinite" : "none",
+                }}
+              >
+                {braking ? "⏎ BRAKING…" : "🛑 BRAKE  —  SPACE"}
+              </button>
+            )}
+            {phase === "result" && (
+              <button onClick={setupRound} style={btnStyle("#003300","#006600")}>▶ NEXT ROUND</button>
+            )}
+
+            {/* HISTORY */}
+            {history.length > 0 && !["brief","driving"].includes(phase) && (
+              <div style={{ marginTop:"12px", background:"#0a0a0a", border:"1px solid #111", borderRadius:"8px", padding:"10px 14px" }}>
+                <div style={{ fontSize:"0.58rem", color:"#222", letterSpacing:"0.25em", marginBottom:"8px" }}>RECENT</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:"4px" }}>
+                  {[...history].reverse().slice(0,5).map((h,i) => (
+                    <div key={i} style={{ display:"flex", justifyContent:"space-between", fontSize:"0.72rem", opacity:1-i*0.15, alignItems:"center" }}>
+                      <span style={{ color:"#333" }}>#{history.length-i}</span>
+                      <span style={{ color:"#555", fontSize:"0.65rem" }}>{h.gap < 0 ? "BUST" : `${(h.gap*0.1).toFixed(1)}m`}</span>
+                      <span style={{ color:h.grade.col, letterSpacing:"0.1em" }}>{h.grade.lbl}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<StopLineGame />);
+  </script>
+</body>
+</html>
